@@ -258,7 +258,7 @@ class MultiHeadedAttention(nn.Module):
         self.W_v = nn.ModuleList([torch.nn.Linear(self.n_units, self.d_k) for _ in range(n_heads)])
         self.W_o = torch.nn.Linear(self.n_units, self.n_units)
 
-        self.dropout = nn.Dropout(dropout_value)
+        self.dropout = nn.Dropout(dropout)
 
         self.init_weights_uniform()
 
