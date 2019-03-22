@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 from torch.optim import lr_scheduler
 from torchsummary import summary
+from torch.distributions.categorical import Categorical
 
 import math
 import numpy as np
@@ -158,7 +159,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
 
             hidden = torch.stack(temp)
             out = self.self.layers[-1].forward(out)
-            input = torch.max(torch.softmax(out, axis=1),axis= 1)[1]
+            probs = torch.softmax(out, axis=1)
+            input = Categorical(probs=probs).sample()
             samples.append(input)
         samples = torch.stack(samples)
         return samples
@@ -226,79 +228,85 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
                 temp.append(h)
             hidden = torch.stack(temp)
             out = self.self.layers[-1].forward(out)
-            input = torch.max(torch.softmax(out, axis=1),axis= 1)[1]
+            probs = torch.softmax(out, axis=1)
+            input = Categorical(probs=probs).sample()
             samples.append(input)
         samples = torch.stack(samples)
         return samples
 
 
 # Problem 3
-class MultiHeadedAttention(nn.Module):
-    def __init__(self, n_heads, n_units, dropout=0.1):
-        """
-        n_heads: the number of attention heads
-        n_units: the number of output units
-        dropout: probability of DROPPING units
-        """
-        super(MultiHeadedAttention, self).__init__()
-        # This sets the size of the keys, values, and queries (self.d_k) to all
-        # be equal to the number of output units divided by the number of heads.
-        self.d_k = n_units // n_heads
-        # This requires the number of n_heads to evenly divide n_units.
-        assert n_units % n_heads == 0
+class OneHeadedAttention(nn.Module):
+    def __init__(self, n_units, d_k,dropout):
+        super(OneHeadedAttention, self).__init__()
+
+        self.d_k = d_k
         self.n_units = n_units
 
-        # TODO: create/initialize any necessary parameters or layers
-        # Initialize all weights and biases uniformly in the range [-k, k],
-        # where k is the square root of 1/n_units.
-        # Note: the only Pytorch modules you are allowed to use are nn.Linear
-        # and nn.Dropout
-        self.W_q = nn.ModuleList([torch.nn.Linear(self.n_units, self.d_k) for _ in range(n_heads)])
-        self.W_k = nn.ModuleList([torch.nn.Linear(self.n_units, self.d_k) for _ in range(n_heads)])
-        self.W_v = nn.ModuleList([torch.nn.Linear(self.n_units, self.d_k) for _ in range(n_heads)])
-        self.W_o = torch.nn.Linear(self.n_units, self.n_units)
+        self.W_q = nn.Linear(self.n_units, self.d_k)
+        self.W_k = nn.Linear(self.n_units, self.d_k)
+        self.W_v = nn.Linear(self.n_units, self.d_k)
 
         self.dropout = nn.Dropout(dropout)
 
-        self.init_weights_uniform()
+    def forward(self, query, key, value, mask):
 
-    def init_weights_uniform(self):
-        m=math.sqrt(1/self.n_units)
-        torch.nn.init.uniform_(self.W_o .weight, -m, m)
-        torch.nn.init.uniform_(self.W_o .bias, -m, m)
+        Q = self.W_q(query)
+        K = self.W_k(key)
+        V = self.W_v(value)
 
-        for head in range(len(self.W_q)):
-            torch.nn.init.uniform_(self.W_q[head].weight, -m, m)
-            torch.nn.init.uniform_(self.W_q[head].bias, -m, m)
+        x_hat = (Q @ torch.transpose(K, 1, 2))/math.sqrt(self.d_k)
 
-            torch.nn.init.uniform_(self.W_k[head].weight, -m, m)
-            torch.nn.init.uniform_(self.W_k[head].bias, -m, m)
+        if mask is not None:
+            mask = mask.float()
+            x_hat_masked = (x_hat * mask) - ((10**9)*(1-mask))
+        else:
+            x_hat_masked = x_hat
 
-            torch.nn.init.uniform_(self.W_v[head].weight, -m, m)
-            torch.nn.init.uniform_(self.W_v[head].bias, -m, m)
+        softmax_output = F.softmax(x_hat_masked, -1)
+        dropout_output = self.dropout(softmax_output)
+
+        out = dropout_output @ V
+        return out  # size: (batch_size, seq_len, self.n_units)
+
+class MultiHeadedAttention(nn.Module):
+    def __init__(self, n_heads, n_units, dropout=0.1):
+        super(MultiHeadedAttention, self).__init__()
+
+        self.d_k = n_units // n_heads
+
+        assert n_units % n_heads == 0
+
+        self.n_units = n_units
+        self.n_heads = n_heads
+
+        m = math.sqrt(1/self.n_units)
+
+        self.attention = clones(OneHeadedAttention(
+                                 n_units = self.n_units,
+                                 d_k = self.d_k,
+                                 dropout = dropout),
+                                 n_heads)
+        self.W_o = nn.Linear(self.n_units, self.n_units)
+
+        self.init_weights_uniform(m)
+
+    def init_weights_uniform(self,m):
+        torch.nn.init.uniform_(self.W_o.weight, -m, m)
+        torch.nn.init.uniform_(self.W_o.bias, -m, m)
+        for i in range(self.n_heads):
+            nn.init.uniform_(self.attention[i].W_q.weight, -m, m)
+            nn.init.uniform_(self.attention[i].W_q.bias, -m, m)
+
+            nn.init.uniform_(self.attention[i].W_k.weight, -m, m)
+            nn.init.uniform_(self.attention[i].W_k.bias, -m, m)
+
+            nn.init.uniform_(self.attention[i].W_v.weight, -m, m)
+            nn.init.uniform_(self.attention[i].W_v.bias, -m, m)
 
     def forward(self, query, key, value, mask=None):
-        Z_i = []
-        for head in range(len(self.W_q)):
-            Q = self.W_q[head](query)
-            K = self.W_k[head](key)
-            V = self.W_v[head](value)
-
-            x_hat = ((Q @ torch.transpose(K, 1, 2)) / math.sqrt(self.d_k))
-            if mask is not None:
-                mask = mask.float()
-                x_hat = x_hat * mask - (1e9) * (1 - mask)
-            else:
-                x_hat = x_hat - torch.max(x_hat, dim=2)  # Not tested!
-
-            softmax_output = F.softmax(x_hat, dim=2)
-            dropout_output = self.dropout(softmax_output)
-            Z_i.append(dropout_output @ V)
-
-        Z = torch.cat([z for z in Z_i], dim=2)
+        Z = torch.cat([self.attention[head].forward(query, key, value, mask) for head in range(self.n_heads)],-1)
         return self.W_o(Z)  # size: (batch_size, seq_len, self.n_units)
-# ----------------------------------------------------------------------------------
-# The encodings of elements of the input sequence
 
 class WordEmbedding(nn.Module):
     def __init__(self, n_units, vocab):
