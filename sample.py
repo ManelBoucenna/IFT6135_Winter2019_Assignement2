@@ -36,11 +36,27 @@ def ptb_raw_data(data_path=None, prefix="ptb"):
     valid_data = _file_to_word_ids(valid_path, word_to_id)
     test_data = _file_to_word_ids(test_path, word_to_id)
     return train_data, valid_data, test_data, word_to_id, id_2_word
+def _build_vocab(filename):
+    data = _read_words(filename)
 
-def generation(model, seq_len, batch_size=10, rawdata, device):
+    counter = collections.Counter(data)
+    count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
 
-    #Load data
-    train_data, valid_data, test_data, word_to_id, id_2_word = rawdata
+    words, _ = list(zip(*count_pairs))
+    word_to_id = dict(zip(words, range(len(words))))
+    id_to_word = dict((v, k) for k, v in word_to_id.items())
+
+    return word_to_id, id_to_word
+def _read_words(filename):
+    with open(filename, "r") as f:
+        return f.read().replace("\n", "<eos>").split()
+def _file_to_word_ids(filename, word_to_id):
+    data = _read_words(filename)
+    return [word_to_id[word] for word in data if word in word_to_id]
+
+
+def generation(model, train_data, valid_data, test_data, word_to_id, id_2_word, seq_len,batch_size=10):
+
     vocab_size = len(word_to_id)
 
     #Initialize model's hyperparameters
@@ -52,55 +68,71 @@ def generation(model, seq_len, batch_size=10, rawdata, device):
     inputs = np.ones(batch_size)
     for i in range(batch_size):
         # Transform input word to id/token
-        inputs[i]= word_to_id[random.randint(1,vocab_size)]
+        inputs[i]= random.randint(1,vocab_size)
 
-    first_token= torch.Tensor(inputs)
+    first_token= torch.LongTensor(inputs)
     hidden = model.init_hidden()
 
-    samples = model.generate(first_token, hidden, seq_len)
+    samples = np.asarray(model.generate(first_token, hidden, seq_len))
     Separator = " "
-
+    sentences =[]
     # Join all the generated word
     for sentence in range(batch_size):
-        generated_sentences.append(Separator.join(id_2_word[first_word] + [id_2_word[id] for id in samples[:, sentence]]))
+        #Transform first id to word
+        first_id = first_token[sentence].numpy()
+        first_word = id_2_word[int(first_id)]
 
-    return generated_sentences
+        restOfSentence =[]
+        for id in samples[:, sentence]:
+            restOfSentence.append(str(id_2_word[id]))
+        sample = " ".join( [first_word] + restOfSentence)
+        sentences.append(sample)
+
+    return sentences
 
 
 if __name__ == "__main__":
     seq_lens = [35, 70]
     BatchSize = 10
-    print('Enter best_param.pt path of RNN:')
-    RNN_bestparams_path = input()
-    print('Enter best_param.pt path of GRU:')
-    GRU_bestparams_path = input()
+    # print('Enter best_param.pt path of RNN:')
+    # RNN_bestparams_path = input()'/home/manal/Desktop/assignment2/Problem4.2/RNN_SGD_problem4.2'+'/best_params.pt'
 
-     RNN = RNN(emb_size=200, hidden_size=1500,
-                seq_len=seq_len, batch_size=20,
-                num_layers=2).to(device)
-
-    GRU =  GRU(emb_size=200, hidden_size=1500,
-                seq_len=seq_len, batch_size=20,
-                num_layers=2).to(device)
+    RNN_bestparams_path = '/home/manal/Desktop/assignment2/Problem4.2/RNN_SGD_problem4.2'+'/best_params.pt'
+    # print('Enter best_param.pt path of GRU:')
+    GRU_bestparams_path = '/home/manal/Desktop/assignment2/problem4.1/GRU_problem4.1'+'/best_params.pt'
+    # GRU_bestparams_path = input()+'/best_params.pt'
 
     print("Generation:")
     raw_data = ptb_raw_data(data_path=DATAPATH)
-    for seq_len in range(seq_lens):
+    train_data, valid_data, test_data, word_to_id, id_2_word = raw_data
+    vocab_size = len(word_to_id)
+    RNN = RNN(emb_size=200, hidden_size=1500,
+                seq_len=0, batch_size=20,
+                num_layers=2, vocab_size=vocab_size, dp_keep_prob=0.35).to(device)
+    GRU =  GRU(emb_size=200, hidden_size=1500,
+                seq_len=0, batch_size=20,
+                num_layers=2, vocab_size=vocab_size, dp_keep_prob=0.35).to(device)
+    for seq_len in seq_lens:
         print("Sequence length: ",seq_len)
         #RNN output
         #Load "Best params model"
-        RNN.load_state_dict(torch.load(RNN_bestparams_path))
-        RNN_generation = generation(RNN, seq_len, BatchSize, rawdata, device)
-        print("RNN generated:")
-        print(RNN_generation)
+        RNN.seq_len = seq_len
+        RNN.load_state_dict(torch.load(RNN_bestparams_path, map_location=device))
+        RNN_generation = generation(RNN, train_data, valid_data, test_data, word_to_id, id_2_word, seq_len,BatchSize)
+#         print("RNN generated:")
+#         print(RNN_generation)
         with open(os.path.join(OUTPUTPATH, 'RNN_%s_samples.txt'%(seq_len)), 'w') as f:
-            f.write("%s\n" % RNN_generation)
-
+            f.write("Model RNN. Sequence length: %s\n" % (seq_len))
+            for index,sentence in enumerate(RNN_generation):
+                f.write("Sentence %s: %s\n" % (index,sentence))
         #GRU output
         #Load "Best params model"
-        GRU.load_state_dict(torch.load(GRU_bestparams_path))
-        GRU_generation = generation(GRU, seq_len, BatchSize, rawdata, device)
-        print("GRU generated:")
-        print(GRU_generation)
+        GRU.seq_len = seq_len
+        GRU.load_state_dict(torch.load(GRU_bestparams_path,map_location=device))
+        GRU_generation = generation(GRU, train_data, valid_data, test_data, word_to_id, id_2_word, seq_len, BatchSize)
+#         print("GRU generated:")
+#         print(GRU_generation)
         with open(os.path.join(OUTPUTPATH, 'GRU_%s_samples.txt'%(seq_len)), 'w') as f:
-            f.write("%s\n" % GRU_generation)
+            f.write("Model GRU. Sequence length: %s\n" % (seq_len))
+            for (index,sentence) in enumerate(GRU_generation):
+                f.write("Sentence %s: %s\n" % (index,sentence))
