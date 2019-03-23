@@ -10,6 +10,21 @@ Team members:
 ## Problem 4
 ### 4.1
 ### 4.2
+In this part, we conduct a series of experiments with each model (_RNN_, _GRU_, and _TRANSFORMER_) using different optimizers (_ADAM_, _SGD_, _SGD with lr scheduler_).
+
+|Model|Optimizer|Initial LR|Batch Size|Seq Len|Hidden Size|Num Layers|DP Keep|Train Last PPL|Valid Last PPL|Valid Best PPL|
+|-----|---------|----------|----------|-------|-----------|----------|-------|--------------|--------------|--------------|
+|RNN|ADAM|0.0001|20|35|1500|2|0.35|121.1118536|158.9805852|157.95399|
+|RNN|SGD_LR_SCHEDULE|1|20|35|1500|2|0.35|232.4454345|197.9271|197.9270227|
+|RNN|SGD|1|20|35|1500|2|0.35|186.5780905|171.2460779|171.2460779|
+|RNN|SGD|0.0001|20|35|1500|2|0.35|3120.732916|2304.27838|2304.27838|
+|GRU|ADAM|0.0001|20|35|1500|2|0.35|60.21096|112.9546477|110.3406978|
+|GRU|SGD_LR_SCHEDULE|10|20|35|1500|2|0.35	65.4541299|103.0691744|103.0691491|
+|GRU|SGD|10|20|35|1500|2|0.35|186.5780905|171.2460779|171.2460779|
+|Transformer|ADAM|0.001|128|35|512|2|0.9|3.450778757|4092.808467|135.3315937|
+|Transformer|SGD_LR_SCHEDULE|20|128|35|512|6|0.9|49.00591414|149.6868475|146.0941041|
+|Transformer|SGD|20|128|35|512|6|0.9|16.98635328|479.2196758|165.6504313|
+
 ### 4.3
 In this part, we conduct a hyperparameter search with each model (_RNN_, _GRU_, and _TRANSFORMER_). The following tables illustrates tested configurations and corresponding results.
 
