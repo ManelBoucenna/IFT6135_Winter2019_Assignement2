@@ -158,8 +158,8 @@ class RNN(nn.Module):  # Implement a stacked vanilla RNN with Tanh nonlinearitie
                 temp.append(h)
 
             hidden = torch.stack(temp)
-            out = self.self.layers[-1].forward(out)
-            probs = torch.softmax(out, axis=1)
+            out = self.layers[-1].forward(out)
+            probs = torch.softmax(out, dim=1)
             input = Categorical(probs=probs).sample()
             samples.append(input)
         samples = torch.stack(samples)
@@ -222,15 +222,15 @@ class GRU(nn.Module):  # Implement a stacked GRU RNN
         samples = []
         for i in range(generated_seq_len):
             temp = []
-            out = self.emb_layer.forward(input)
+            out = self.emb_layer.forward(inpute)
             for j in range(self.num_layers):
                 out, h = self.layers[j].forward(out, hidden[j])
                 temp.append(h)
             hidden = torch.stack(temp)
-            out = self.self.layers[-1].forward(out)
-            probs = torch.softmax(out, axis=1)
-            input = Categorical(probs=probs).sample()
-            samples.append(input)
+            out = self.layers[-1].forward(out)
+            probs = torch.softmax(out, dim=1)
+            inpute = Categorical(probs=probs).sample()
+            samples.append(inpute)
         samples = torch.stack(samples)
         return samples
 
